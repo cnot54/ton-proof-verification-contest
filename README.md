@@ -1,177 +1,83 @@
-# TON Proof Verification Contest.
+# Privacy-preserving Credentials with zkSNARKs:
 
-One of the exciting recent developments around zk-SNARKs is that it is now possible to verify a zk-SNARK proof in a
-lscs (a.k.a. smart contract) on FreeTON. 
+---
 
-Let's see how we can create a Solidity smart contract to generate proofs for that circuit on FreeTON.
+An obvious privacy limitation with current technology doesn't even allow us to verify our age without revealing our passports and other sensitive data.
+Let's imagine the situation:
+Alice (Creditor) want's to prove to Bob (Bank) that she's eligible to get credit. She has to reveal her's id and whole bank history to Bob to prove that she is over specific age and proof that she's eligible for credit.
 
-## Building
+## Assumptions:
 
-Requirements: Boost >= 1.74.
+- We must allow users to generate proofs on the third-party issued credentials.
+- The verifier must verify that the statement is true concerning the third party-issued credential without knowing the actual credential value.
+- The user should have the option to disclose credential values if necessary selectively.
+- The prover can make any statement regarding its issued credentials and create proof which asserts that the statement is valid.
+- The verifier is an entity that requires the prover to prove the validity of a specific statement.
 
-```shell
-git clone --recursive git@github.com:NilFoundation/ton-proof-verification-contest.git contest && cd contest
-mkdir build && cd build
-cmake ..
-make cli
-```
+This point allows us to integrate ZKP into a fully decentralized architecture.
 
-**To update** ```git submodule update --init --recursive```
+We would change this by generating proof on Alice's side that she is satisfied with specific parameters without revealing sensitive data.
 
+I think the magic of zkSNARKs lets you do this!
 
-## Verification instruction VERGRTH16 input creation
+With a zkSNARK, you can "prove" that you have some secrets `age` and `amount` (i.e., `R1` and `R2`)
+that satisfy some programmable condition (i.e., `SHA(R1)=H1` and `SHA(R2)=H2`, based on public inputs (H1, H2, and X), without revealing
+those secrets.
 
-To create `VERGRTH16` instruction input you need to represent the 'what you want to prove' in the form of a constraint
-system using =nil;Crypto3 [Blueprint](https://github.com/NilFoundation/crypto3-blueprint) module and then prove it using
-=nil;Crypto3
-[ZK](https://github.com/NilFoundation/crypto3-zk) module. Then you can use byte-serialized output of the 'prove'
-function as input to the instruction in your lscs (a.k.a. smart contract).
+That's pretty safe because if you receive the only preimage for R1, along with instructions in the onion saying ask Bob for
+a preimage for R2, and here's X and proof, then either:
 
-The =nil;Crypto3 Blueprint zk-SNARK library is a powerful library for defining circuits, generating & verifying proofs.
-It can be hard to get a sense of how to use it in practice, so please
-follow [the tutorial](https://github.com/NilFoundation/crypto3-blueprint) providing a sense of the high-level components
-of =nil;Crypto3 Blueprint and how to use it concretely, as well as how to connect the proofs to FreeTON lscs.
+## Implementation
 
-## Serializing verification keys and proofs
+This reference implementation is built on top of the blueprint (*which is a fork of libsnark*) library: zkSNARKs are based on verifiable computation schemes.
 
-If you have runned
-the [generate](https://github.com/NilFoundation/crypto3-zk/blob/master/include/nil/crypto3/zk/snark/algorithms/generate.hpp)
-and [prove](https://github.com/NilFoundation/crypto3-zk/blob/master/include/nil/crypto3/zk/snark/algorithms/prove.hpp)
-algorithms for Groth16, than you have all the data you need. There should
-be [verification keys](https://github.com/NilFoundation/crypto3-zk/blob/master/include/nil/crypto3/zk/snark/schemes/ppzksnark/r1cs_gg_ppzksnark/verification_key.hpp)
-and [proof](https://github.com/NilFoundation/crypto3-zk/blob/master/include/nil/crypto3/zk/snark/schemes/ppzksnark/r1cs_gg_ppzksnark/proof.hpp)
-in the appropriate format.
-
-First we need to extract the verification keys and proofs from
-=nil;Crypto3 [Blueprint](https://github.com/NilFoundation/crypto3-blueprint) in a way that can be consumed by Solidity
-smart contracts. In the file `cli/src/main.cpp` we demonstrate how to serialize the information from the
-objects `r1cs_gg_ppzksnark<bls12<381>>::verification_key_type` and `r1cs_gg_ppzksnark<bls12<381>>::proof_type` and write
-that information to a file in the form of field elements that can be interpreted as byteblobs in Solidity.
-
-We won't go into detail here about the meaning of the values `A`, `B`, `C` etc in the proof data but check
-out [Vitalik's blog post](https://medium.com/@VitalikButerin/zk-snarks-under-the-hood-b33151a013f6) to learn more. The
-main thing to illustrate is that these values are elliptic curve points and hence will be represented by two elements of
-the underlying field.
-
-When running the executable `cli` from within the build directory two files will be created: `proof_data` and `vk_data`
-containing the corresponding data in the form of byteblobs.
+It seems like there are research-level tools out there that make this practical to try out. I've had a go at implementing this using `blueprint`.
 
 
-## Building  solidity contracts
 
-You need to use a **solc compiler** and **tvm linker** with support for these instructions:
+### Verification
 
-- [tvm fork](https://github.com/nilfoundation/tvm-solidity)
+It is not necessary for a verifier to directly interact with the prover to verify proof.
 
-- [linker fork](https://github.com/NilFoundation/tvm-lld)
+ 
 
-These forks **need to be built using instructions** from repo.
-*You will need `Boost` with `Boost.Filesystem` module to build them.* 
+### Using it looks like:
 
-After compilation you will have 2 files: `solc` (solidity compiler) and `tvm_linker` (linker). 
+1. initial setup of proof/verification keys
 
-To use these versions through `tondev`: 
+ ` ./age_test keygen > keygen.txt  # initial setup`
 
-- you need to **put these files in the directory** `~/.tondev/solidity`/ 
+2. generate proof using a secret
 
--  give execution rights (`chmod +x`) to these files *(otherwise `tondev` will crash)*
+`    ./age_test -m proof -s "$SECRET" -x "$VAL" > proof.txt`
 
+3. Verify the proof:
 
-## Using verification keys and proofs in Solidity
-
-We first take a look at the Solidity file `examples/solidity/verifier.sol` which contains the verification contract
-code. This file contains the function `verify()`, which stores incoming byteblob and gives it as input for the TVM
-instruction.
-
-## `VERGRTH16` usage example
-
-This example is a simple contract which allows to verify Groth16 zk-SNARK proof using TVM.
-
-### Methods
-
-This contract has two methods.
-
-* `verification::constructor()` - method run on the contract's deploy.
-* `bool verification::verify(slice proof)` - proof packed into a slice with an inner format defined as follows.
-
-### Input format
-
-zk-SNARK verifier `bytes proof` argument contains of 3 parts packed together:
-
-* `verification_key_type vk`
-* `primary_input_type primary_input`
-* `proof_type proof`
-
-Type requirements for those are described in
-the [Groth16 zk-SNARK policy](https://github.com/NilFoundation/crypto3-zk/blob/master/include/nil/crypto3/zk/snark/schemes/ppzksnark/r1cs_gg_ppzksnark.hpp)
-
-Byte vector assumes to be byte representation of all the underlying data types, recursively unwrapped to Fp field
-element and integral `std::size_t` values. All the values should be putted in the same order the recursion calculated.
+ ` ./age_test -m verify -h "$F" -b "$B" -x "$VAL"`
 
 
-## Deploy instructions:
+4. Verify it doesn't report a valid proof with different inputs:
 
-### Creating a `SetcodeMultisigWallet` wallet:
+  `   ./age_test -m verify -h "$B" -b "$F" -x "$VAL"`
 
-[Full instruction is here](https://github.com/tonlabs/ton-labs-contracts/tree/master/solidity/safemultisig#install-through-tondev)
+Some results:
 
-1. Add ZKP-ready nil's network to `tondev`:
-`tondev network add nil net.freeton.nil.foundation`
-2. Create / Add your wallet via `tondev signer` and save your `<YOU_SIGNER_PUBLIC_ADDRESS>`
-3. Download wallet files:
-```bash 
-wget https://raw.githubusercontent.com/tonlabs/ton-labs-contracts/master/solidity/setcodemultisig/SetcodeMultisigWallet.abi.json
+ * Everyone has to trust that nobody has kept the original random
+   numbers used to generate it.
 
-wget https://github.com/tonlabs/ton-labs-contracts/raw/master/solidity/setcodemultisig/SetcodeMultisigWallet.tvc
-```
-4. Get wallet address:
-    `tondev contract info SetcodeMultisigWallet.abi.json -n nil `
+ * proof/verification key data takes about a minute to generate on a modern laptop.
 
-  It should be printed as:
-  > Address:   0:<address> (calculated from TVC and signer public)
+ * generating the proof data for a given R1, X pair takes about 10
+   seconds
 
-5. Request test token from Jury (Ask to fund this address someone in related telegram group) to `<address>`
-  - ... Wait for it ...
-  -  now check your balance: `tondev contract info -a 0:<address> -n nil | grep Balance`
-6. Deploy wallet:
-    `tondev contract deploy SetcodeMultisigWallet.abi.json constructor -n nil -i owners:"[0x<YOU_SIGNER_PUBLIC_ADDRESS>]",reqConfirms:1`
+ * verifying the proof is quick-ish -- it takes 0.1s on my laptop,
 
-You will get something like this:
->Deploying...
->Contract has deployed at address: 0:<address>
+The long proof generation time is probably more of a limitation -- though you could generate them in advance quickly enough and store them until it would be best if you used them, which would avoid lag being a problem at least.
 
-- Profit!
+## In the end
 
-Now you have wallet and can deploy smart contracts. 
+zkSNARKs are still pretty new as a concept, And it was hard to figure how to build it. I'm not familiar enough with zkSNARK theory to be sure I'm not misusing the concept somehow; 
+My proof may not have implemented the approach entirely correctly, and  So not a great idea to use this to protect real money today. But it could be a great start for building a private and scalable blockchain.
 
-Let's go to deployment step!
+But still, this seems like it's not all /that/ far from being practical, and if the crypto's not fundamentally broken, it looks like it goes a long way to filling in the most significant privacy hole in blockchain today.
 
-## Deployment
-
-### Moving proof:
-1. Transform binary proof file to hex format for usage with a tondev tool and copy it to a smart contract folder:
-`cat proof | xxd -p | tr -d '\n' > ../examples/lscs/solidity/proof.hex`
-2. cd to smart contract folder
-`cd ../examples/lscs/solidity/`
-
-### Deploy smart contract
-
-1. Compile smart contract
-`tondev sol compile verification.sol `
-2. Get address of a contract:
-`tondev contract info verification.abi.json`
-3. Send tokens to address of a contract *(for deploy you will need 10 tokens)*:
-`tondev contract run SetcodeMultisigWallet.abi.json submitTransaction -n nil -i dest:<CONTRACT_ADDRESS>,value:10000000000,bounce:false,allBalance:false,payload:""`
-4. Deploy smart contract:
-`tondev contract deploy verification.abi -n nil`
-5. Verify proof on chain:
-`tondev contract run verification.abi.json verify -p -i proof:$(cat proof.hex) --network nil`
-
-
-## Tests
-Put your tests in a `test` folder.
-1. `cd build`
-2. Build tests:
-`cmake .. -DDBUILD_TESTS=1`
-`make circuit_test`
-3. Run tests: `test/circuit_test`
