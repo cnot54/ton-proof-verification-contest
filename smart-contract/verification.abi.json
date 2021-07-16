@@ -1,0 +1,28 @@
+{
+	"ABI version": 2,
+	"header": ["pubkey", "time"],
+	"functions": [
+		{
+			"name": "verify",
+			"inputs": [
+				{"name":"proof","type":"bytes"},
+				{"name":"min_salary","type":"uint32"},
+				{"name":"min_age","type":"uint32"}
+			],
+			"outputs": [
+				{"name":"value0","type":"bool"}
+			]
+		},
+		{
+			"name": "constructor",
+			"inputs": [
+			],
+			"outputs": [
+			]
+		}
+	],
+	"data": [
+	],
+	"events": [
+	]
+}
